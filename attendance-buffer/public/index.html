@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attendance Buffer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #eef1f6; margin: 0; padding: 20px; color: #1f2937; }
+    .container { max-width: 900px; margin: auto; }
+    h1 { text-align: center; color: #1e3a8a; margin-bottom: 4px; }
+    .tagline { text-align: center; color: #555; margin-top: 0; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+    .summary .num { font-size: 26px; font-weight: bold; color: #1e3a8a; }
+    .summary .lbl { font-size: 12px; color: #666; }
+    form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; margin-bottom: 16px; }
+    input, button { padding: 9px; font-size: 14px; border-radius: 5px; border: 1px solid #c8ced8; }
+    button { cursor: pointer; border: none; background: #1e3a8a; color: #fff; }
+    button.present { background: #15803d; } button.absent { background: #b45309; } button.del { background: #b91c1c; }
+    #msg { color: #b91c1c; min-height: 18px; margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+    .subject h3 { margin: 0; } .subject .code { font-size: 12px; color: #666; }
+    .pct { font-size: 32px; font-weight: bold; margin: 8px 0 4px; }
+    .bar { background: #e5e7eb; height: 10px; border-radius: 6px; overflow: hidden; position: relative; }
+    .bar > div { height: 100%; }
+    .Safe .pct { color: #15803d; } .Safe .bar > div { background: #15803d; }
+    .Warning .pct { color: #b45309; } .Warning .bar > div { background: #d97706; }
+    .Danger .pct { color: #b91c1c; } .Danger .bar > div { background: #dc2626; }
+    .info { font-size: 13px; margin: 8px 0; min-height: 36px; }
+    .row { display: flex; gap: 6px; margin-top: 8px; }
+    .row button { flex: 1; padding: 7px; font-size: 13px; }
+    .whatif input { width: 70px; } .whatif span { font-size: 12px; align-self: center; }
+    .whatif button { flex: 0 0 auto; background: #475569; }
+    @media (max-width: 600px) { form { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Attendance Buffer</h1>
+  <p class="tagline">Know exactly how many classes you can skip - or must attend.</p>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="card">
+    <form id="addForm">
+      <input id="name" placeholder="Subject name" required>
+      <input id="code" placeholder="Code (optional)">
+      <input id="target" type="number" min="1" max="99" value="75" title="Target attendance %">
+      <button type="submit">Add Subject</button>
+    </form>
+    <div id="msg"></div>
+  </div>
+
+  <h3>My Subjects</h3>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const API = '/api/subjects';
+  const $ = (id) => document.getElementById(id);
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  async function loadAll() {
+    const [subjects, summary] = await Promise.all([
+      fetch(API).then((r) => r.json()),
+      fetch(`${API}/summary`).then((r) => r.json())
+    ]);
+    renderSummary(summary);
+    renderSubjects(subjects);
+  }
+
+  function renderSummary(s) {
+    const box = $('summary');
+    box.innerHTML = '';
+    const items = [
+      [`${s.overallPercentage}%`, 'Overall attendance'],
+      [`${s.attended} / ${s.held}`, 'Classes attended / held'],
+      [s.subjects, 'Subjects tracked'],
+      [s.lowestSubject ? `${s.lowestSubject.name} (${s.lowestSubject.percentage}%)` : '-', 'Needs most attention']
+    ];
+    items.forEach(([num, lbl]) => {
+      const c = el('div', 'card');
+      c.append(el('div', 'num', String(num)), el('div', 'lbl', lbl));
+      box.appendChild(c);
+    });
+  }
+
+  function renderSubjects(subjects) {
+    const grid = $('grid');
+    grid.innerHTML = '';
+    if (!subjects.length) { grid.appendChild(el('p', '', 'No subjects yet. Add your first subject above.')); return; }
+
+    subjects.forEach((s) => {
+      const card = el('div', `card subject ${s.status}`);
+      card.append(el('h3', '', s.name), el('div', 'code', `${s.code || '-'} | Target ${s.target}%`));
+      card.append(el('div', 'pct', s.held ? `${s.percentage}%` : '--'));
+
+      const bar = el('div', 'bar');
+      const fill = el('div');
+      fill.style.width = `${Math.min(100, s.percentage)}%`;
+      bar.appendChild(fill);
+      card.appendChild(bar);
+
+      let msg;
+      if (s.status === 'No data') msg = 'Mark your first class to begin.';
+      else if (s.percentage < s.target) msg = `Attend the next ${s.mustAttend} class(es) in a row to reach ${s.target}%.`;
+      else msg = `You can skip up to ${s.canSkip} more class(es) and stay at ${s.target}%+.`;
+      card.append(el('div', 'info', `${s.attended} of ${s.held} attended. ${msg}`));
+
+      const row = el('div', 'row');
+      const pBtn = el('button', 'present', 'Present'); pBtn.onclick = () => mark(s._id, true);
+      const aBtn = el('button', 'absent', 'Absent');   aBtn.onclick = () => mark(s._id, false);
+      const dBtn = el('button', 'del', 'Delete');      dBtn.onclick = () => remove(s._id);
+      row.append(pBtn, aBtn, dBtn);
+      card.appendChild(row);
+
+      const wi = el('div', 'row whatif');
+      const inp = el('input'); inp.type = 'number'; inp.min = 0; inp.value = 1;
+      const go = el('button', '', 'What if I skip');
+      const out = el('span', '', '');
+      go.onclick = async () => {
+        const r = await fetch(`${API}/${s._id}/whatif?skip=${inp.value}`);
+        const d = await r.json();
+        out.textContent = r.ok ? `-> ${d.predictedPercentage}%${d.belowTarget ? ' (below target!)' : ''}` : d.error;
+      };
+      wi.append(inp, go, out);
+      card.appendChild(wi);
+
+      grid.appendChild(card);
+    });
+  }
+
+  $('addForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('msg').textContent = '';
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ name: $('name').value, code: $('code').value, target: Number($('target').value) })
+    });
+    if (!res.ok) { $('msg').textContent = (await res.json()).error; return; }
+    e.target.reset();
+    $('target').value = 75;
+    loadAll();
+  });
+
+  async function mark(id, present) {
+    await fetch(`${API}/${id}/mark`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ present }) });
+    loadAll();
+  }
+
+  async function remove(id) {
+    if (!confirm('Delete this subject?')) return;
+    await fetch(`${API}/${id}`, { method: 'DELETE' });
+    loadAll();
+  }
+
+  loadAll();
+</script>
+</body>
+</html>
