@@ -64,4 +64,4 @@ attendance-buffer/
 Screenshots are in the `screenshots/` folder.
 
 ## Author
-Your Name | USN | Semester / Section
+Fardeen Malik | 1NH23CS148 | 7 / C
